@@ -14,7 +14,7 @@ def generate_uuids(n):
     return [str(uuid.uuid4()) for _ in range(n)]
 
 
-def generate_constractors_data(num_contractors=50, date=None, filename="contractors.csv"):
+def generate_contractors_data(num_contractors=50, date=None, filename="contractors.csv"):
     """
     Generate realistic contractor data for construction projects
     """
