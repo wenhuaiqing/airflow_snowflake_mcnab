@@ -9,7 +9,6 @@ from airflow.decorators import dag, task
 from airflow.datasets import Dataset
 from airflow.models.baseoperator import chain
 from airflow.io.path import ObjectStoragePath
-from airflow.providers.microsoft.azure.operators.adls_gen2 import ADLSGen2CreateContainerOperator
 from airflow.models.param import Param
 from pendulum import datetime, duration
 import pandas as pd
@@ -59,14 +58,21 @@ base_dst = ObjectStoragePath(f"{OBJECT_STORAGE_DST}://{KEY_DST}", conn_id=CONN_I
     tags=["ETL", "Azure", "Construction", "Internal API"],
 )
 def extract_from_api():
+    
+    @task
+    def create_container():
+        from airflow.providers.microsoft.azure.operators.adls_gen2 import ADLSGen2CreateContainerOperator
+        
+        container_creator = ADLSGen2CreateContainerOperator(
+            task_id="create_container",
+            azure_data_lake_conn_id=_AZURE_CONN_ID,
+            container_name=_AZURE_CONTAINER_NAME,
+        )
+        return container_creator.execute({})
 
     # Create the Azure Data Lake Gen2 container if it does not exist yet
-    create_container = ADLSGen2CreateContainerOperator(
-        task_id="create_container",
-        azure_data_lake_conn_id=_AZURE_CONN_ID,
-        container_name=_AZURE_CONTAINER_NAME,
-    )
-
+    create_container_task = create_container()
+    
     @task
     def get_new_construction_data_from_api(**context) -> list[pd.DataFrame]:
         """
@@ -155,11 +161,10 @@ def extract_from_api():
     # ------------------------------ #
 
     chain(
-        create_container,
+        create_container_task,
         get_new_construction_data_from_api_obj,
         write_to_azure_datalake_obj,
         confirm_ingest(base_path=base_dst),
     )
-
 
 extract_from_api()
