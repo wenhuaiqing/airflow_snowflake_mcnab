@@ -1,138 +1,67 @@
-"""
-### ETL: Move data from ingest to stage
-"""
-
-from airflow.decorators import dag, task
-from airflow.datasets import Dataset
-from airflow.io.path import ObjectStoragePath
-from airflow.models.baseoperator import chain
-from pendulum import datetime, duration
-import logging
+# /usr/local/airflow/dags/move_ingest_to_stage.py
 import os
+from airflow import DAG
+from airflow.decorators import task
+from airflow.utils.dates import days_ago
+from airflow.datasets import Dataset
+from adlfs import AzureBlobFileSystem
+from dotenv import load_dotenv
 
-# import modularized functions from the include folder
-from include.utils import get_all_files, get_all_checksums, compare_checksums
+# Load environment variables
+load_dotenv()
 
-# Get the Airflow task logger
-t_log = logging.getLogger("airflow.task")
+AZURE_STORAGE_ACCOUNT = os.getenv("AZURE_STORAGE_ACCOUNT")
+AZURE_STORAGE_KEY = os.getenv("AZURE_STORAGE_KEY")
+AZURE_CONTAINER_NAME = os.getenv("AZURE_CONTAINER_NAME")
+INGEST_FOLDER_NAME = os.getenv("INGEST_FOLDER_NAME")
+STAGE_FOLDER_NAME = os.getenv("STAGE_FOLDER_NAME")
 
-# Azure Data Lake Gen2 variables
-_AZURE_CONN_ID = os.getenv("AZURE_CONN_ID")
-_AZURE_CONTAINER_NAME = os.getenv("AZURE_CONTAINER_NAME")
-_INGEST_FOLDER_NAME = os.getenv("INGEST_FOLDER_NAME", "construction-ingest")
-_STAGE_FOLDER_NAME = os.getenv("STAGE_FOLDER_NAME", "construction-stage")
+# Define dataset paths for lineage
+INGEST_DATASET = Dataset(f"abfs://{AZURE_CONTAINER_NAME}/{INGEST_FOLDER_NAME}")
+STAGE_DATASET = Dataset(f"abfs://{AZURE_CONTAINER_NAME}/{STAGE_FOLDER_NAME}")
 
-# Creating ObjectStoragePath objects for Azure Data Lake Gen2
-OBJECT_STORAGE_SRC = "abfs"
-CONN_ID_SRC = _AZURE_CONN_ID
-KEY_SRC = _AZURE_CONTAINER_NAME + "/" + _INGEST_FOLDER_NAME
+# -----------------------------
+# Helper function to move files
+# -----------------------------
+def move_files(fs: AzureBlobFileSystem, src_folder: str, dest_folder: str):
+    """
+    Move files from src_folder to dest_folder in ADLS
+    """
+    src_path = f"{AZURE_CONTAINER_NAME}/{src_folder}"
+    dest_path = f"{AZURE_CONTAINER_NAME}/{dest_folder}"
 
-OBJECT_STORAGE_DST = "abfs"
-CONN_ID_DST = _AZURE_CONN_ID
-KEY_DST = _AZURE_CONTAINER_NAME + "/" + _STAGE_FOLDER_NAME
+    print(f"Moving files from abfs://{src_path} to abfs://{dest_path} ...")
+    try:
+        files = fs.ls(src_path)
+        for file in files:
+            filename = os.path.basename(file)
+            src_file = f"{src_path}/{filename}"
+            dest_file = f"{dest_path}/{filename}"
+            print(f"Moving {src_file} -> {dest_file}")
+            fs.mv(src_file, dest_file)
+        print("Files moved successfully.")
+    except Exception as e:
+        print(f"Failed to move files: {e}")
+        raise
 
-BASE_SRC = ObjectStoragePath(f"{OBJECT_STORAGE_SRC}://{KEY_SRC}", conn_id=CONN_ID_SRC)
-BASE_DST = ObjectStoragePath(f"{OBJECT_STORAGE_DST}://{KEY_DST}", conn_id=CONN_ID_DST)
-
-# -------------- #
-# DAG definition #
-# -------------- #
-
-@dag(
-    dag_display_name="Move construction data from ingest to stage",
-    start_date=datetime(2024, 8, 1),
-    schedule=[
-        Dataset(BASE_SRC.as_uri()),
-    ],
+# -----------------------------
+# Define DAG
+# -----------------------------
+with DAG(
+    dag_id="move_ingest_to_stage",
+    description="Move files from Ingest to Stage folder in ADLS",
+    schedule=[INGEST_DATASET],  # triggered by extract_from_api.py
+    start_date=days_ago(1),
     catchup=False,
-    default_args={
-        "owner": "Data team",
-        "retries": 3,
-        "retry_delay": duration(minutes=1),
-    },
-    doc_md=__doc__,
-    description="ETL",
-    tags=["Azure", "Construction"],
-)
-def move_ingest_to_stage():
+    tags=["construction", "adls", "etl"],
+) as dag:
 
-    @task
-    def list_ingest_folders(base_path: ObjectStoragePath) -> list[ObjectStoragePath]:
-        """List files in Azure Data Lake Gen2."""
-        path = base_path
-        folders = [f for f in path.iterdir() if f.is_dir()]
-        return folders
+    @task(outlets=[STAGE_DATASET])  # publish STAGE_DATASET so move_stage_to_archive.py can be triggered
+    def move_ingest_files_to_stage():
+        """
+        Move CSVs from Ingest folder to Stage folder
+        """
+        fs = AzureBlobFileSystem(account_name=AZURE_STORAGE_ACCOUNT, account_key=AZURE_STORAGE_KEY)
+        move_files(fs, INGEST_FOLDER_NAME, STAGE_FOLDER_NAME)
 
-    @task(map_index_template="{{ my_custom_map_index }}")
-    def copy_ingest_to_stage(
-        path_src: ObjectStoragePath, base_dst: ObjectStoragePath
-    ) -> None:
-        """Copy a file from remote to local storage.
-        The file is streamed in chunks using shutil.copyobj"""
-
-        for f in path_src.iterdir():
-            full_key = base_dst / os.path.join(*f.parts[-2:])
-            t_log.info(f"Copying {f} to {full_key}")
-            f.copy(dst=full_key)
-
-        # get the current context and define the custom map index variable
-        from airflow.operators.python import get_current_context
-
-        context = get_current_context()
-        context["my_custom_map_index"] = (
-            f"Copying files from {os.path.join(*path_src.parts[-2:])}."
-        )
-
-    @task(outlets=Dataset(BASE_DST.as_uri() + "/"))
-    def verify_checksum(
-        base_src: ObjectStoragePath,
-        base_dst: ObjectStoragePath,
-        folder_name_src: str,
-        folder_name_dst: str,
-    ):
-        """Compares checksums to verify correct file copy to stage.
-        Raises an exception in case of any mismatches"""
-
-        folder_src = base_src
-        folder_dst = base_dst
-
-        src_files = get_all_files(folder_src)
-        dst_files = get_all_files(folder_dst)
-
-        src_checksums = get_all_checksums(path=folder_src, files=src_files)
-        dst_checksums = get_all_checksums(path=folder_dst, files=dst_files)
-
-        compare_checksums(
-            src_checksums=src_checksums,
-            dst_checksums=dst_checksums,
-            folder_name_src=folder_name_src,
-            folder_name_dst=folder_name_dst,
-        )
-
-    @task
-    def del_files_from_ingest(base_src: ObjectStoragePath):
-        path = base_src
-        files = get_all_files(path)
-        for f in files:
-            f.unlink()
-
-    folders = list_ingest_folders(base_path=BASE_SRC)
-    copy_ingest_to_stage_obj = copy_ingest_to_stage.partial(base_dst=BASE_DST).expand(
-        path_src=folders
-    )
-    verify_checksum_obj = verify_checksum(
-        base_src=BASE_SRC,
-        base_dst=BASE_DST,
-        folder_name_src=_INGEST_FOLDER_NAME,
-        folder_name_dst=_STAGE_FOLDER_NAME,
-    )
-    del_files_from_ingest_obj = del_files_from_ingest(base_src=BASE_SRC)
-
-    # ------------------------------ #
-    # Define additional dependencies #
-    # ------------------------------ #
-
-    chain(copy_ingest_to_stage_obj, verify_checksum_obj, del_files_from_ingest_obj)
-
-
-move_ingest_to_stage()
+    move_ingest_files_to_stage()

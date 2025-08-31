@@ -7,6 +7,7 @@ from airflow.utils.dates import days_ago
 from adlfs import AzureBlobFileSystem
 from dotenv import load_dotenv
 from include.api_functions import get_new_construction_data_from_internal_api
+from airflow.datasets import Dataset
 from datetime import datetime
 import tempfile
 
@@ -17,6 +18,11 @@ AZURE_STORAGE_ACCOUNT = os.getenv("AZURE_STORAGE_ACCOUNT")
 AZURE_STORAGE_KEY = os.getenv("AZURE_STORAGE_KEY")
 AZURE_CONTAINER_NAME = os.getenv("AZURE_CONTAINER_NAME")
 INGEST_FOLDER_NAME = os.getenv("INGEST_FOLDER_NAME")
+
+# -----------------------------
+# Define Dataset for Airflow
+# -----------------------------
+INGEST_DATASET = Dataset(f"abfs://{AZURE_CONTAINER_NAME}/{INGEST_FOLDER_NAME}/")
 
 # -----------------------------
 # Helper function to upload CSV
@@ -46,7 +52,7 @@ with DAG(
     tags=["construction", "adls", "etl"],
 ) as dag:
 
-    @task
+    @task(outlets=INGEST_DATASET)
     def get_new_construction_data():
         """
         Call internal API to generate new construction data and save to temporary CSVs
