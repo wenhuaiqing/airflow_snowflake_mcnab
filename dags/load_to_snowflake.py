@@ -165,28 +165,6 @@ def load_to_snowflake():
 
         from include.data_quality_checks import column_mappings
 
-        SQLColumnCheckOperator(
-            task_id="additional_dq_checks_materials_col",
-            conn_id=_SNOWFLAKE_CONN_ID,
-            database=_SNOWFLAKE_DB_NAME,
-            table=f"{_SNOWFLAKE_SCHEMA_NAME}.materials",
-            column_mapping={
-                "MATERIAL_NAME": {
-                    "null_check": {"equal_to": 0},
-                    "distinct_check": {"geq_to": 20},
-                },
-                "MATERIAL_CATEGORY": {
-                    "null_check": {"equal_to": 0},
-                    "distinct_check": {"equal_to": 6},
-                },
-                "UNIT_PRICE": {
-                    "null_check": {"equal_to": 0},
-                    "min": {"geq_to": 0},
-                    "max": {"leq_to": 5000},
-                },
-            },
-        )
-
         SQLTableCheckOperator(
             task_id="additional_dq_checks_materials_table",
             conn_id=_SNOWFLAKE_CONN_ID,

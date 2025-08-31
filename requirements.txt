@@ -4,3 +4,5 @@ apache-airflow-providers-snowflake==5.6.1
 apache-airflow-providers-common-sql==1.16.0
 apache-airflow-providers-slack==8.9.0
 Faker==28.0.0
+# packages.txt
+python-dotenv==1.0.0
