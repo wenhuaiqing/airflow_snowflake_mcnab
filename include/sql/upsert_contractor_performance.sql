@@ -26,7 +26,7 @@ USING (
         c.license_type,
         c.registration_date
     FROM {{ params.db_name }}.{{ params.schema_name }}.contractors c
-    LEFT JOIN {{ params.db_name }}.{{ params.schema_name }}.enriched_project_activities pa 
+    LEFT JOIN {{ params.db_name }}.{{ params.schema_name }}.enriched_activities pa 
         ON c.contractor_id = pa.contractor_id
     LEFT JOIN {{ params.db_name }}.{{ params.schema_name }}.projects p 
         ON pa.project_id = p.project_id

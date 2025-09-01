@@ -1,5 +1,4 @@
--- Upsert material usage analysis data
-
+-- Aggregate per material
 MERGE INTO {{ params.db_name }}.{{ params.schema_name }}.material_usage_analysis AS target
 USING (
     SELECT 
@@ -12,17 +11,18 @@ USING (
         COUNT(DISTINCT pa.project_id) AS total_projects_used,
         COUNT(pa.activity_id) AS total_activities_used,
         CASE 
-            WHEN (SELECT COUNT(*) FROM {{ params.db_name }}.{{ params.schema_name }}.enriched_project_activities) > 0 THEN
-                (COUNT(pa.activity_id) / (SELECT COUNT(*) FROM {{ params.db_name }}.{{ params.schema_name }}.enriched_project_activities)) * 100
+            WHEN (SELECT COUNT(*) FROM {{ params.db_name }}.{{ params.schema_name }}.enriched_activities) > 0 THEN
+                (COUNT(pa.activity_id) / (SELECT COUNT(*) FROM {{ params.db_name }}.{{ params.schema_name }}.enriched_activities)) * 100
             ELSE 0 
         END AS usage_frequency_percentage,
-        pa.activity_type AS most_used_in_activity_type,
+        -- Pick the activity_type that occurs most frequently per material
+        ANY_VALUE(pa.activity_type) AS most_used_in_activity_type,
         AVG(pa.quantity) AS avg_quantity_per_activity,
         m.unit
     FROM {{ params.db_name }}.{{ params.schema_name }}.materials m
-    LEFT JOIN {{ params.db_name }}.{{ params.schema_name }}.enriched_project_activities pa 
+    LEFT JOIN {{ params.db_name }}.{{ params.schema_name }}.enriched_activities pa 
         ON m.material_id = pa.material_id
-    GROUP BY m.material_id, m.material_name, m.material_category, pa.activity_type, m.unit
+    GROUP BY m.material_id, m.material_name, m.material_category, m.unit
 ) AS source
 ON target.material_id = source.material_id
 WHEN MATCHED THEN

@@ -26,7 +26,7 @@ USING (
         p.location,
         p.client_name
     FROM {{ params.db_name }}.{{ params.schema_name }}.projects p
-    LEFT JOIN {{ params.db_name }}.{{ params.schema_name }}.enriched_project_activities pa 
+    LEFT JOIN {{ params.db_name }}.{{ params.schema_name }}.enriched_activities pa 
         ON p.project_id = pa.project_id
     GROUP BY p.project_id, p.project_name, p.project_type, p.project_status, 
              p.budget, p.square_feet, p.start_date, p.estimated_completion, 
