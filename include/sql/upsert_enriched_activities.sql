@@ -1,7 +1,7 @@
 -- Upsert enriched project activities data
 -- This script handles incremental updates to the enriched table
 
-MERGE INTO {{ params.db_name }}.{{ params.schema_name }}.enriched_project_activities AS target
+MERGE INTO {{ params.db_name }}.{{ params.schema_name }}.enriched_activities AS target
 USING (
     SELECT 
         pa.activity_id,
@@ -28,7 +28,7 @@ USING (
         p.location AS project_location,
         p.client_name,
         p.architect
-    FROM {{ params.db_name }}.{{ params.schema_name }}.project_activities pa
+    FROM {{ params.db_name }}.{{ params.schema_name }}.activities pa
     JOIN {{ params.db_name }}.{{ params.schema_name }}.projects p ON pa.project_id = p.project_id
     JOIN {{ params.db_name }}.{{ params.schema_name }}.contractors c ON pa.contractor_id = c.contractor_id
     JOIN {{ params.db_name }}.{{ params.schema_name }}.materials m ON pa.material_id = m.material_id

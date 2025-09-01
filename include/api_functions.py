@@ -154,6 +154,7 @@ def generate_project_activities_data(num_activities=500, projects_df=None, contr
             "activity_date": date,
             "hours_worked": np.random.randint(1, 12),
             "cost": np.random.randint(100, 10000),
+            "update_at": date,
         }
     else:
         data = {
@@ -166,6 +167,7 @@ def generate_project_activities_data(num_activities=500, projects_df=None, contr
             "activity_date": date,
             "hours_worked": np.random.randint(1, 12, size=num_activities),
             "cost": np.random.randint(100, 10000, size=num_activities),
+            "update_at": date,
         }
     df = pd.DataFrame(data)
     df.to_csv(filename, index=False)

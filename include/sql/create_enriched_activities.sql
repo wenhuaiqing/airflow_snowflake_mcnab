@@ -1,7 +1,7 @@
 -- Create enriched project activities table with joined data and calculated metrics
 -- This table combines all construction data for analytics
 
-CREATE TABLE IF NOT EXISTS {{ params.db_name }}.{{ params.schema_name }}.enriched_project_activities (
+CREATE TABLE IF NOT EXISTS {{ params.db_name }}.{{ params.schema_name }}.enriched_activities (
     activity_id STRING,
     project_id STRING,
     project_name STRING,
@@ -53,7 +53,7 @@ SELECT
     p.location AS project_location,
     p.client_name,
     p.architect
-FROM {{ params.db_name }}.{{ params.schema_name }}.project_activities pa
+FROM {{ params.db_name }}.{{ params.schema_name }}.activities pa
 JOIN {{ params.db_name }}.{{ params.schema_name }}.projects p ON pa.project_id = p.project_id
 JOIN {{ params.db_name }}.{{ params.schema_name }}.contractors c ON pa.contractor_id = c.contractor_id
 JOIN {{ params.db_name }}.{{ params.schema_name }}.materials m ON pa.material_id = m.material_id;
