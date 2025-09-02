@@ -1,166 +1,114 @@
-"""
-### ETL: Archive raw construction data
-"""
-
-from airflow.decorators import dag, task
-from airflow.datasets import Dataset
-from airflow.io.path import ObjectStoragePath
-from airflow.models.baseoperator import chain
-from pendulum import datetime, duration
-import logging
+# /usr/local/airflow/dags/move_stage_to_archive.py
 import os
-
-# import modularized functions from the include folder
+import logging
+from airflow import DAG
+from airflow.decorators import task
+from airflow.utils.dates import days_ago
+from airflow.datasets import Dataset
+from adlfs import AzureBlobFileSystem
+from dotenv import load_dotenv
 from include.utils import get_all_files, get_all_checksums, compare_checksums
 
-# Get the Airflow task logger
+# -----------------------------
+# Load environment variables
+# -----------------------------
+load_dotenv()
+
+AZURE_STORAGE_ACCOUNT = os.getenv("AZURE_STORAGE_ACCOUNT")
+AZURE_STORAGE_KEY = os.getenv("AZURE_STORAGE_KEY")
+AZURE_CONTAINER_NAME = os.getenv("AZURE_CONTAINER_NAME")
+STAGE_FOLDER_NAME = os.getenv("STAGE_FOLDER_NAME", "construction-stage")
+ARCHIVE_FOLDER_NAME = os.getenv("ARCHIVE_FOLDER_NAME", "construction-archive")
+
+# Define dataset paths for lineage
+STAGE_DATASET = Dataset(f"abfs://{AZURE_CONTAINER_NAME}/{STAGE_FOLDER_NAME}")
+ARCHIVE_DATASET = Dataset(f"abfs://{AZURE_CONTAINER_NAME}/{ARCHIVE_FOLDER_NAME}")
+
+# Logger
 t_log = logging.getLogger("airflow.task")
 
-# Snowflake variables
-_SNOWFLAKE_DB_NAME = os.getenv("SNOWFLAKE_DB_NAME", "ETL_DEMO")
-_SNOWFLAKE_SCHEMA_NAME = os.getenv("SNOWFLAKE_SCHEMA_NAME", "DEV")
+# -----------------------------
+# Helper function to move files
+# -----------------------------
+def move_files(fs: AzureBlobFileSystem, src_folder: str, dest_folder: str):
+    """
+    Move files from src_folder to dest_folder in ADLS
+    """
+    src_path = f"{AZURE_CONTAINER_NAME}/{src_folder}"
+    dest_path = f"{AZURE_CONTAINER_NAME}/{dest_folder}"
 
-# Azure Data Lake Gen2 variables
-_AZURE_CONN_ID = os.getenv("AZURE_CONN_ID")
-_AZURE_CONTAINER_NAME = os.getenv("AZURE_CONTAINER_NAME")
-_INGEST_FOLDER_NAME = os.getenv("INGEST_FOLDER_NAME", "construction-ingest")
-_STAGE_FOLDER_NAME = os.getenv("STAGE_FOLDER_NAME", "construction-stage")
-_ARCHIVE_FOLDER_NAME = os.getenv("ARCHIVE_FOLDER_NAME", "construction-archive")
+    t_log.info(f"Moving files from abfs://{src_path} to abfs://{dest_path} ...")
+    try:
+        files = fs.ls(src_path)
+        for file in files:
+            filename = os.path.basename(file)
+            src_file = f"{src_path}/{filename}"
+            dest_file = f"{dest_path}/{filename}"
+            t_log.info(f"Moving {src_file} -> {dest_file}")
+            fs.mv(src_file, dest_file)
+        t_log.info("Files moved successfully.")
+    except Exception as e:
+        t_log.error(f"Failed to move files: {e}")
+        raise
 
-# Creating ObjectStoragePath objects for Azure Data Lake Gen2
-OBJECT_STORAGE_INGEST = "abfs"
-CONN_ID_INGEST = _AZURE_CONN_ID
-KEY_INGEST = _AZURE_CONTAINER_NAME + "/" + _INGEST_FOLDER_NAME
-
-OBJECT_STORAGE_SRC = "abfs"
-CONN_ID_SRC = _AZURE_CONN_ID
-KEY_SRC = _AZURE_CONTAINER_NAME + "/" + _STAGE_FOLDER_NAME
-
-OBJECT_STORAGE_DST = "abfs"
-CONN_ID_DST = _AZURE_CONN_ID
-KEY_DST = _AZURE_CONTAINER_NAME + "/" + _ARCHIVE_FOLDER_NAME
-
-BASE_SRC = ObjectStoragePath(f"{OBJECT_STORAGE_SRC}://{KEY_SRC}", conn_id=CONN_ID_SRC)
-BASE_DST = ObjectStoragePath(f"{OBJECT_STORAGE_DST}://{KEY_DST}", conn_id=CONN_ID_DST)
-BASE_INGEST = ObjectStoragePath(
-    f"{OBJECT_STORAGE_INGEST}://{KEY_INGEST}", conn_id=CONN_ID_INGEST
-)
-
-# -------------- #
-# DAG definition #
-# -------------- #
-
-@dag(
-    dag_display_name="🗄️ Archive raw construction data",
-    start_date=datetime(2024, 8, 1),
-    schedule=[Dataset(f"snowflake://{_SNOWFLAKE_DB_NAME}.{_SNOWFLAKE_SCHEMA_NAME}")],
+# -----------------------------
+# DAG definition
+# -----------------------------
+with DAG(
+    dag_id="move_stage_to_archive",
+    description="Move files from Stage to Archive folder in ADLS",
+    schedule=[STAGE_DATASET],  # triggered when STAGE_DATASET is updated
+    start_date=days_ago(1),
     catchup=False,
-    default_args={
-        "owner": "Data team",
-        "retries": 3,
-        "retry_delay": duration(minutes=1),
-    },
-    doc_md=__doc__,
-    description="ETL",
-    tags=["archive", "Azure", "Construction"],
-)
-def move_stage_to_archive():
+    tags=["construction", "adls", "etl"],
+) as dag:
+
+    @task(outlets=[ARCHIVE_DATASET])
+    def move_stage_files_to_archive():
+        """
+        Move files from Stage folder to Archive folder
+        """
+        fs = AzureBlobFileSystem(account_name=AZURE_STORAGE_ACCOUNT, account_key=AZURE_STORAGE_KEY)
+        move_files(fs, STAGE_FOLDER_NAME, ARCHIVE_FOLDER_NAME)
 
     @task
-    def list_ingest_folders(base_path: ObjectStoragePath) -> list[ObjectStoragePath]:
-        """List files in Azure Data Lake Gen2."""
-        path = base_path
-        folders = [f for f in path.iterdir() if f.is_dir()]
-        return folders
+    def verify_checksum(src_folder: str, dst_folder: str):
+        """
+        Verify checksums between Stage and Archive folders
+        """
+        fs = AzureBlobFileSystem(account_name=AZURE_STORAGE_ACCOUNT, account_key=AZURE_STORAGE_KEY)
+        # List files
+        src_files = fs.ls(f"{AZURE_CONTAINER_NAME}/{src_folder}")
+        dst_files = fs.ls(f"{AZURE_CONTAINER_NAME}/{dst_folder}")
 
-    @task(map_index_template="{{ my_custom_map_index }}")
-    def copy_ingest_to_stage(
-        path_src: ObjectStoragePath, base_dst: ObjectStoragePath
-    ) -> None:
-        """Copy a file from remote to local storage.
-        The file is streamed in chunks using shutil.copyobj"""
+        # Compute checksums
+        src_checksums = get_all_checksums(path=f"{AZURE_CONTAINER_NAME}/{src_folder}", files=src_files)
+        dst_checksums = get_all_checksums(path=f"{AZURE_CONTAINER_NAME}/{dst_folder}", files=dst_files)
 
-        for f in path_src.iterdir():
-            full_key = base_dst / os.path.join(*f.parts[-2:])
-            t_log.info(f"Copying {f} to {full_key}")
-            f.copy(dst=full_key)
-
-        # get the current context and define the custom map index variable
-        from airflow.operators.python import get_current_context
-
-        context = get_current_context()
-        context["my_custom_map_index"] = (
-            f"Copying files from {os.path.join(*path_src.parts[-2:])}."
-        )
-
-    @task(outlets=Dataset(BASE_DST.as_uri() + "/"))
-    def verify_checksum(
-        base_src: ObjectStoragePath,
-        base_dst: ObjectStoragePath,
-        folder_name_src: str,
-        folder_name_dst: str,
-    ):
-        """Compares checksums to verify correct file copy to stage.
-        Raises an exception in case of any mismatches"""
-
-        folder_src = base_src
-        folder_dst = base_dst
-
-        src_files = get_all_files(folder_src)
-        dst_files = get_all_files(folder_dst)
-
-        src_checksums = get_all_checksums(path=folder_src, files=src_files)
-        dst_checksums = get_all_checksums(path=folder_dst, files=dst_files)
-
+        # Compare
         compare_checksums(
             src_checksums=src_checksums,
             dst_checksums=dst_checksums,
-            folder_name_src=folder_name_src,
-            folder_name_dst=folder_name_dst,
+            folder_name_src=src_folder,
+            folder_name_dst=dst_folder,
         )
 
     @task
-    def del_all_files_from_stage(base_src: ObjectStoragePath):
-        path = base_src
-        files = get_all_files(path)
+    def del_all_files_from_stage():
+        """
+        Delete all files in Stage folder after moving
+        """
+        fs = AzureBlobFileSystem(account_name=AZURE_STORAGE_ACCOUNT, account_key=AZURE_STORAGE_KEY)
+        files = fs.ls(f"{AZURE_CONTAINER_NAME}/{STAGE_FOLDER_NAME}")
         for f in files:
-            f.unlink()
+            fs.rm(f)
+        t_log.info("Stage folder cleared.")
 
-    @task
-    def del_processed_files_from_ingest(
-        base_ingest: ObjectStoragePath, base_archive: ObjectStoragePath
-    ):
-        # delete all files that are in the archive folder from the ingest folder
-        ingest_files = get_all_files(base_ingest)
-        archive_files = get_all_files(base_archive)
-        for f in ingest_files:
-            if f in archive_files:
-                f.unlink()
+    # -----------------------------
+    # DAG task dependencies
+    # -----------------------------
+    moved_files = move_stage_files_to_archive()
+    verified = verify_checksum(STAGE_FOLDER_NAME, ARCHIVE_FOLDER_NAME)
+    cleared_stage = del_all_files_from_stage()
 
-    folders = list_ingest_folders(base_path=BASE_SRC)
-    copy_ingest_to_stage_obj = copy_ingest_to_stage.partial(base_dst=BASE_DST).expand(
-        path_src=folders
-    )
-    verify_checksum_obj = verify_checksum(
-        base_src=BASE_SRC,
-        base_dst=BASE_DST,
-        folder_name_src=_STAGE_FOLDER_NAME,
-        folder_name_dst=_ARCHIVE_FOLDER_NAME,
-    )
-    del_all_files_from_stage_obj = del_all_files_from_stage(base_src=BASE_SRC)
-    del_processed_files_from_ingest_obj = del_processed_files_from_ingest(
-        base_ingest=BASE_INGEST, base_archive=BASE_DST
-    )
-
-    # ------------------------------ #
-    # Define additional dependencies #
-    # ------------------------------ #
-
-    chain(
-        copy_ingest_to_stage_obj,
-        verify_checksum_obj,
-        [del_all_files_from_stage_obj, del_processed_files_from_ingest_obj],
-    )
-
-
-move_stage_to_archive()
+    moved_files >> verified >> cleared_stage
