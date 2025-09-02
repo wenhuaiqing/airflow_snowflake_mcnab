@@ -213,7 +213,7 @@ The pipeline is designed to be modular and decoupled, allowing for easy maintena
 ![Airflow DAGs Execution](assets/move_stage_to_archive.png)
 ![Airflow DAGs Execution](assets/Transform-construction-data-in-Data%20Warehouse.png)
 
-### 2. Snowflake Tables
+### 2. Snowflake Tables and Stages
 ![Snowflake Tables](assets/Snowflake%20database%20objects.png)
 
 ### 3. ADLS Gen2 Container Files
