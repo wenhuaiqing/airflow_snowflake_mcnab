@@ -6,26 +6,26 @@ from snowflake.snowpark.context import get_active_session
 session = get_active_session()
 
 # Load construction analytics data
-enriched_project_activities_df = session.table("ETL_DEMO.DEV.ENRICHED_PROJECT_ACTIVITIES").to_pandas()
+enriched_activities_df = session.table("ETL_DEMO.DEV.ENRICHED_activities").to_pandas()
 project_cost_analysis_df = session.table("ETL_DEMO.DEV.PROJECT_COST_ANALYSIS").to_pandas()
 contractor_performance_df = session.table("ETL_DEMO.DEV.CONTRACTOR_PERFORMANCE").to_pandas()
 material_usage_analysis_df = session.table("ETL_DEMO.DEV.MATERIAL_USAGE_ANALYSIS").to_pandas()
 project_timeline_analysis_df = session.table("ETL_DEMO.DEV.PROJECT_TIMELINE_ANALYSIS").to_pandas()
 
-enriched_project_activities_df['ACTIVITY_DATE'] = pd.to_datetime(enriched_project_activities_df['ACTIVITY_DATE'])
+enriched_activities_df['ACTIVITY_DATE'] = pd.to_datetime(enriched_activities_df['ACTIVITY_DATE'])
 
 today = datetime.now().date() 
 start_of_month = today.replace(day=1)  
 start_of_year = today.replace(month=1, day=1)  
 
 # Calculate key metrics
-activities_today = len(enriched_project_activities_df[enriched_project_activities_df['ACTIVITY_DATE'].dt.date == today])
-total_cost_today = enriched_project_activities_df[enriched_project_activities_df['ACTIVITY_DATE'].dt.date == today]['COST'].sum()
-total_cost_this_month = enriched_project_activities_df[enriched_project_activities_df['ACTIVITY_DATE'].dt.date >= start_of_month]['COST'].sum()
-total_cost_this_year = enriched_project_activities_df[enriched_project_activities_df['ACTIVITY_DATE'].dt.date >= start_of_year]['COST'].sum()
+activities_today = len(enriched_activities_df[enriched_activities_df['ACTIVITY_DATE'].dt.date == today])
+total_cost_today = enriched_activities_df[enriched_activities_df['ACTIVITY_DATE'].dt.date == today]['COST'].sum()
+total_cost_this_month = enriched_activities_df[enriched_activities_df['ACTIVITY_DATE'].dt.date >= start_of_month]['COST'].sum()
+total_cost_this_year = enriched_activities_df[enriched_activities_df['ACTIVITY_DATE'].dt.date >= start_of_year]['COST'].sum()
 
 # Latest activities
-latest_activities = enriched_project_activities_df.sort_values(by='ACTIVITY_DATE', ascending=False).head(5)[[
+latest_activities = enriched_activities_df.sort_values(by='ACTIVITY_DATE', ascending=False).head(5)[[
     'ACTIVITY_DATE', 'PROJECT_NAME', 'CONTRACTOR_NAME', 'ACTIVITY_TYPE', 'COST'
 ]]
 
