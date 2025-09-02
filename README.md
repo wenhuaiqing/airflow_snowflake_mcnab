@@ -198,7 +198,7 @@ The pipeline is designed to be modular and decoupled, allowing for easy maintena
 4. `4_transform_in_snowflake.py`  
 5. `5_move_stage_to_archive.py`
 
-### DAG Sequence Diagram (Placeholder)
+### DAG Sequence Diagram
 
 ![DAG Sequence Diagram](assets/dag_sequence.png)
 

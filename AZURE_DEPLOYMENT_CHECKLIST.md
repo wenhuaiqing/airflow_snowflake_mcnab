@@ -2,18 +2,6 @@
 
 This checklist covers everything needed to deploy your ETL pipeline with Azure Data Lake Gen2, Snowflake, and Astro.
 
-## ✅ Prerequisites Completed
-
-### 1. Code Migration ✓
-- [x] Replaced AWS S3 with Azure Data Lake Gen2 in DAGs
-- [x] Updated requirements.txt with Azure provider
-- [x] Updated environment variables for Azure
-- [x] Modified ObjectStoragePath to use `abfs://` protocol
-
-### 2. Dependencies ✓
-- [x] Added `apache-airflow-providers-microsoft-azure==10.3.0`
-- [x] Removed AWS S3 dependency
-- [x] Kept Snowflake and other required providers
 
 ## 🔧 Azure Data Lake Gen2 Setup Required
 
@@ -23,36 +11,20 @@ This checklist covers everything needed to deploy your ETL pipeline with Azure D
 az group create --name rg-construction-etl --location eastus
 
 # Create storage account with hierarchical namespace enabled
-az storage account create \
-    --name <your-storage-account-name> \
-    --resource-group rg-construction-etl \
-    --location eastus \
-    --sku Standard_LRS \
-    --enable-hierarchical-namespace true
+az storage account create     --name <your-storage-account-name>     --resource-group rg-construction-etl     --location eastus     --sku Standard_LRS     --enable-hierarchical-namespace true
 ```
 
 ### 2. Create Container and Folders
 ```bash
 # Create container
-az storage fs create \
-    --name construction-data \
-    --account-name <your-storage-account-name>
+az storage fs create     --name construction-data     --account-name <your-storage-account-name>
 
 # Create folder structure
-az storage fs directory create \
-    --name construction-ingest \
-    --file-system construction-data \
-    --account-name <your-storage-account-name>
+az storage fs directory create     --name construction-ingest     --file-system construction-data     --account-name <your-storage-account-name>
 
-az storage fs directory create \
-    --name construction-stage \
-    --file-system construction-data \
-    --account-name <your-storage-account-name>
+az storage fs directory create     --name construction-stage     --file-system construction-data     --account-name <your-storage-account-name>
 
-az storage fs directory create \
-    --name construction-archive \
-    --file-system construction-data \
-    --account-name <your-storage-account-name>
+az storage fs directory create     --name construction-archive     --file-system construction-data     --account-name <your-storage-account-name>
 ```
 
 ### 3. Create Service Principal for Authentication
@@ -112,14 +84,6 @@ USE DATABASE ETL_DEMO;
 USE SCHEMA DEV;
 
 -- Create stage pointing to Azure Data Lake Gen2
-CREATE OR REPLACE STAGE CONSTRUCTION_STAGE
-URL = 'azure://<your-storage-account>.dfs.core.windows.net/construction-data/construction-stage/'
-CREDENTIALS = (
-    AZURE_SAS_TOKEN = '<your-sas-token>'
-)
-FILE_FORMAT = (TYPE = 'CSV', FIELD_DELIMITER = ',', SKIP_HEADER = 1, FIELD_OPTIONALLY_ENCLOSED_BY = '"');
-
--- Alternative: Using Service Principal authentication
 CREATE OR REPLACE STAGE CONSTRUCTION_STAGE
 URL = 'azure://<your-storage-account>.dfs.core.windows.net/construction-data/construction-stage/'
 CREDENTIALS = (
@@ -226,14 +190,6 @@ astro deploy
 - [ ] Run full pipeline end-to-end
 - [ ] Verify data quality checks
 - [ ] Test Slack notifications (if enabled)
-
-## 🔍 Key Differences from Original AWS Version
-
-1. **Storage Protocol**: Changed from `s3://` to `abfs://`
-2. **Provider Package**: Replaced `apache-airflow-providers-amazon` with `apache-airflow-providers-microsoft-azure`
-3. **Connection Type**: Using `azure_data_lake` instead of `aws_default`
-4. **Authentication**: Using Service Principal instead of AWS credentials
-5. **Snowflake Stage**: Updated to point to Azure Data Lake Gen2 instead of S3
 
 ## 🚨 Common Issues and Solutions
 
