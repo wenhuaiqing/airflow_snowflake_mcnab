@@ -51,19 +51,41 @@ ADLS Gen2 → Airflow DAGs → Snowflake (staging → transformed) → Streamlit
 
 ```
 .
-├── dags/                # Airflow DAGs
-│   ├── 1_ingest.py
-│   ├── 2_validate.py
+├── dags/                      # Airflow DAGs for orchestration
+│   ├── 1_extract_from_api.py
+│   ├── 2_move_ingest_to_stage.py
 │   ├── 3_load_to_snowflake.py
-│   └── move_stage_to_archive.py
-├── include/             # Custom Python modules
-│   ├── api_functions.py
-│   └── snowflake_helpers.py
-├── sql/                 # SQL scripts for Snowflake
-│   ├── create_tables.sql
-│   └── transform_data.sql
-├── streamlit/           # Streamlit app (hosted inside Snowflake)
-└── tests/               # Unit tests
+│   ├── 4_transform_in_snowflake.py
+│   └── 5_move_stage_to_archive.py
+├── include/                   # Reusable Python modules and SQL scripts
+│   ├── api_functions.py       # Simulates API data extraction
+│   ├── data_quality_checks.py # Data validation logic
+│   ├── streamlit_app.py       # Streamlit dashboard application
+│   ├── utils.py               # Utility functions for file handling
+│   └── sql/                   # SQL scripts for Snowflake transformations
+│       ├── create_contractor_performance.sql
+│       ├── create_enriched_activities.sql
+│       ├── create_material_usage_analysis.sql
+│       ├── create_project_cost_analysis.sql
+│       ├── create_raw_tables.sql
+│       ├── create_schemas.sql
+│       ├── dedup_contractors.sql
+│       ├── dedup_projects.sql
+│       ├── enrich_activities.sql
+│       ├── upsert_contractor_performance.sql
+│       ├── upsert_material_usage_analysis.sql
+│       ├── upsert_project_cost_analysis.sql
+│       └── upsert_project_timeline_analysis.sql
+├── tests/                     # Unit and integration tests
+│   ├── test_api_functions.py
+│   └── test_snowflake_connection.py
+├── assets/                    # Non-code assets like diagrams
+│   └── data_pipeline_overview.png
+├── plugins/                   # Custom Airflow plugins (if any)
+├── .env                       # Environment variables (credentials, configs)
+├── Dockerfile                 # Docker definition for the Astro Runtime environment
+├── packages.txt               # OS-level dependencies
+└── requirements.txt           # Python package dependencies
 ```
 
 ---
